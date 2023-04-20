@@ -1,14 +1,15 @@
 # Grad-Align
-This source code is about
-Jin-Duk et al. "On the Power of Gradual Network Alignment
-Using Dual-Perception Similarities" (TBD)
+Source code for the papers
+- Jin-Duk et al. "Grad-Align: Gradual Network Alignment via Graph Neural Networks" AAAI-22 Poster program (SA) (accepted) 
+
+- Jin-Duk et al. "On the Power of Gradual Network Alignment Using Dual-Perception Similarities". IEEE TPAMI (under review)
 
 Pytorch_geometric (https://pytorch-geometric.readthedocs.io/en/latest/) package is used for the implementation of graph neural networks (GNNs).
 
 # Dependancy
 
 - Pytorch > 1.8
-- torch_geometric and Its relevants, whose packages can be downloaded at: https://pytorch-geometric.readthedocs.io/en/latest/notes/installation.html
+- torch_geometric: https://pytorch-geometric.readthedocs.io/en/latest/notes/installation.html
 - numpy
 - pands
 - sklearn

@@ -75,9 +75,11 @@ def na_dataloader(args):
         alignment_dict, alignment_dict_reversed = read_alignment(args.alignment_folder, args.graphname)
         G3, G4, Ggt = PerturbedProcessing(G1, G2, 0, args.edge_portion, args.graphname)
         
-        attr1, attr2, attribute_sim = AttributeProcessing(args, G3, G4, alignment_dict)    
+        attr1, attr2, attribute_sim = AttributeProcessing(args, G3, G4, alignment_dict)
+        attr1 = random_flipping_att(attr1, args.att_portion)
+        attr2 = random_flipping_att(attr2, args.att_portion)
         #alignment_dict, alignment_dict_reversed = read_alignment(args.alignment_folder, args.graphname)  
-        idx1_dict, idx2_dict = create_idx_dict_pair(G1,G2,alignment_dict)
+        idx1_dict, idx2_dict = create_idx_dict_pair(G3,G4,alignment_dict)
         
         return G3, G4, attr1, attr2, alignment_dict, alignment_dict_reversed, idx1_dict, idx2_dict
     
@@ -90,8 +92,8 @@ def Reordering(G1,G2):
     return G1,G2
 
 def ReorderingSame(G1,G2):
-    G1 = nx.convert_node_labels_to_integers(G1, first_label=0, ordering='default', label_attribute=None)
-    G2 = nx.convert_node_labels_to_integers(G2, first_label=0, ordering='default', label_attribute=None)
+    G1 = nx.convert_node_labels_to_integers(G1, first_label=1, ordering='default', label_attribute=None)
+    G2 = nx.convert_node_labels_to_integers(G2, first_label=1, ordering='default', label_attribute=None)
     return G1,G2
 
 
@@ -101,8 +103,8 @@ def PerturbedProcessing(G1, G2, com_portion, rand_portion, graphname):
     #Groundtruth graph
     Ggt = copy.deepcopy(G1)
     #Input 2 graphs
-    G3, G4 = perturb_edge_pair(G3, com_portion, rand_portion)
-    #G3, G4 = ReorderingSame(G3,G4) #0505 disabled
+    G3, G4 = perturb_edge_pair_oneside(G3, rand_portion)
+    G3, G4 = ReorderingSame(G3,G4) #0505 disabled
     
     #export to the files
     nx.write_edgelist(G3, "{}1_ran{}.edges".format(graphname, rand_portion),delimiter=',',data=False)
@@ -177,6 +179,26 @@ def perturb_edge_pair(G, com_portion = 0.05, rand_portion = 0.1):
             G_copy.remove_edges_from(e)
             
     return G, G_copy
+
+def perturb_edge_pair_oneside(G, rand_portion = 0.1):
+    
+    G_copy = copy.deepcopy(G)
+    
+    edgelist = list(G.edges)
+    
+    num_mask_rand = int(len(edgelist)*rand_portion)
+            
+    for _ in range(num_mask_rand):
+        e = sample(list(edgelist),1)
+        
+        start_vertex = e[0][0]
+        end_vertex = e[0][1]
+        
+        if G_copy.degree[start_vertex] >= 2 and G_copy.degree[end_vertex] >= 2:
+            G_copy.remove_edges_from(e)
+            
+    return G, G_copy
+
 
 def perturb_edge_pair_real(G1, G2, dictionary, com_portion = 0.1, rand_portion = 0.05):
     
@@ -400,12 +422,12 @@ def load_attribute(attribute_folder, filename, G1, G2, alignment_dict):
     
     attribute1_pd = pd.read_csv(attribute_folder + filename + 'attr1.csv', header = None, index_col = 0)
     attribute2_pd = pd.read_csv(attribute_folder + filename + 'attr2.csv', header = None, index_col = 0)
-    #print("sadasdas",attribute2)
 
     attribute1 = np.array(attribute1_pd.loc[G1_nodes, :])
     attribute2 = np.array(attribute2_pd.loc[G2_nodes, :])   
-    
+
     attr_cos = cosine_similarity(attribute1, attribute2)
+    
     return attr_cos, attribute1, attribute2, attribute1_pd, attribute2_pd
 
 
@@ -474,3 +496,232 @@ def create_idx_dict_pair(G1,G2,alignment_dict):
     idx2_dict = {c : d for d, c in zip(idx2_list,G2list)}
     
     return idx1_dict, idx2_dict
+
+
+def create_idx_dict_pair_backup(G1,G2,alignment_dict):
+    '''
+    Make sure that this function is followed after preprocessing dict.
+
+    '''
+    
+    G1list = list(G1.nodes())
+    #G1list.sort()
+    idx1_list = list(range(G1.number_of_nodes()))
+    #make dict for G1
+    idx1_dict = {a : b for b, a in zip(idx1_list,G1list)}
+
+    
+    G2list = list(G2.nodes())
+    #G2list.sort()
+    idx2_list = list(range(G2.number_of_nodes()))
+    #make dict for G2
+    idx2_dict = {c : d for d, c in zip(idx2_list,G2list)}
+    
+    return idx1_dict, idx2_dict
+def augment_attr(Gs, Gt, attr_s, attr_t, interval):
+    # attribute index의 순서는 G*.nodes()를 출력했을때 나오는 순서와 같음 !!
+
+    # Gs, Gt 중 max deg를 측정
+    max_deg = max(max(Gs.degree, key=lambda x: x[1])[1], max(Gt.degree, key=lambda x: x[1])[1])
+    print(f"max degree is {max_deg}")
+    # interval을 기준으로 했을 때, 늘어나는 속성 개수를 계산
+    num_attr = math.ceil(max_deg / interval)
+    # n_s * num_attr 의 속성 벡터를 0 value로 초기화
+    init_np_s = np.zeros((Gs.number_of_nodes(), num_attr))
+    init_np_t = np.zeros((Gt.number_of_nodes(), num_attr))
+
+    # 각 노드마다 deg를 측정하여 attr를 init_np에 assign
+    for idx_s, node_s in enumerate(Gs.nodes()):
+        deg_node = Gs.degree(node_s)
+        init_np_s[idx_s, int(deg_node / interval) - 1] = 1
+
+    for idx_t, node_t in enumerate(Gt.nodes()):
+        deg_node = Gt.degree(node_t)
+        init_np_t[idx_t, int(deg_node / interval) - 1] = 1
+
+    # assign이 완료된 매트릭스를 기존 attr에 attach (np.append(a,b, axis =1))
+    new_attr_s = np.append(attr_s, init_np_s, axis=1)
+    new_attr_t = np.append(attr_t, init_np_t, axis=1)
+    new_attr_s = init_np_s
+    new_attr_t = init_np_t
+    # 만약 len(attr_s) == 1 (plain network) 의 경우, 그냥 attr을 대체하면 된다.
+    if len(attr_s) == 1:
+        new_attr_s = new_attr_s[:, 1:]
+        new_attr_t = new_attr_t[:, 1:]
+
+    return new_attr_s, new_attr_t
+
+def augment_attr_khop(Gs, Gt, attr_s, attr_t, interval, k):
+    # attribute index의 순서는 G*.nodes()를 출력했을때 나오는 순서와 같음 !!
+    Gs_nodes = list(Gs.nodes())
+    Gt_nodes = list(Gt.nodes())
+    # node: khop nbr의 구성을 갖는 dict 생성
+    khopdict_source = {key : len(nx.single_source_shortest_path_length(Gs, source = key, cutoff=k)) for key in Gs_nodes}
+    khopdict_target = {key : len(nx.single_source_shortest_path_length(Gt, source = key, cutoff=k)) for key in Gt_nodes}
+    # Gs, Gt 중 max deg를 측정
+    max_deg = max(max(khopdict_source.values()), max(khopdict_target.values()))
+    print(f"max k-hop degree is {max_deg}")
+    # interval을 기준으로 했을 때, 늘어나는 속성 개수를 계산
+    num_attr = math.ceil(max_deg / interval)
+    # n_s * num_attr 의 속성 벡터를 0 value로 초기화
+    init_np_s = np.zeros((Gs.number_of_nodes(), num_attr))
+    init_np_t = np.zeros((Gt.number_of_nodes(), num_attr))
+
+    # 각 노드마다 deg를 측정하여 attr를 init_np에 assign
+    for idx_s, node_s in enumerate(Gs.nodes()):
+        deg_node = Gs.degree(node_s)
+        init_np_s[idx_s, int(deg_node / interval) - 1] = 1
+
+    for idx_t, node_t in enumerate(Gt.nodes()):
+        deg_node = Gt.degree(node_t)
+        init_np_t[idx_t, int(deg_node / interval) - 1] = 1
+
+    # assign이 완료된 매트릭스를 기존 attr에 attach (np.append(a,b, axis =1))
+    # new_attr_s = np.append(attr_s, init_np_s, axis=1)
+    # new_attr_t = np.append(attr_t, init_np_t, axis=1)
+    new_attr_s = init_np_s
+    new_attr_t = init_np_t
+    # 만약 len(attr_s) == 1 (plain network) 의 경우, 그냥 attr을 대체하면 된다.
+    if len(attr_s) == 1:
+        new_attr_s = new_attr_s[:, 1:]
+        new_attr_t = new_attr_t[:, 1:]
+
+    return new_attr_s, new_attr_t
+
+
+
+def augment_attr_Katz(Gs, Gt, attr_s, attr_t, interval,mul):
+    # attribute index의 순서는 G*.nodes()를 출력했을때 나오는 순서와 같음 !!
+    
+    # Katz dictionary
+    katzdict_s = nx.katz_centrality_numpy(Gs, alpha = 0.05, beta = 1, normalized = False)
+    katzdict_t = nx.katz_centrality_numpy(Gt, alpha = 0.05, beta = 1, normalized = False)
+    
+    katzdict_s.update((x, y*mul) for x, y in katzdict_s.items())
+    katzdict_t.update((x, y*mul) for x, y in katzdict_t.items())
+    
+    # Gs, Gt 중 max length를 측정
+    max_len = max((max(katzdict_s.values())), (max(katzdict_t.values())))
+    print(f"len of attr is {max_len}")
+
+    # interval을 기준으로 했을 때, 늘어나는 속성 개수를 계산
+    num_attr = math.ceil(max_len / interval)
+    # n_s * num_attr 의 속성 벡터를 0 value로 초기화
+    init_np_s = np.zeros((Gs.number_of_nodes(), num_attr))
+    init_np_t = np.zeros((Gt.number_of_nodes(), num_attr))
+
+    # 각 노드마다 deg를 측정하여 attr를 init_np에 assign
+    for idx_s, node_s in enumerate(Gs.nodes()):
+        katz_node = katzdict_s[node_s]
+        init_np_s[idx_s, int(katz_node / interval) - 1] = 1
+
+    for idx_t, node_t in enumerate(Gt.nodes()):
+        katz_node = katzdict_t[node_t]
+        init_np_t[idx_t, int(katz_node / interval) - 1] = 1
+
+    # assign이 완료된 매트릭스를 기존 attr에 attach (np.append(a,b, axis =1))
+    new_attr_s = np.append(attr_s, init_np_s, axis=1)
+    new_attr_t = np.append(attr_t, init_np_t, axis=1)
+    new_attr_s = init_np_s
+    new_attr_t = init_np_t
+    # 만약 len(attr_s) == 1 (plain network) 의 경우, 그냥 attr을 대체하면 된다.
+    if len(attr_s) == 1:
+        new_attr_s = new_attr_s[:, 1:]
+        new_attr_t = new_attr_t[:, 1:]
+
+    return new_attr_s, new_attr_t
+
+
+def augment_attr_bin(Gs, Gt, attr_s, attr_t):
+    # attribute index의 순서는 G*.nodes()를 출력했을때 나오는 순서와 같음 !!
+
+    # Gs, Gt 중 max deg를 측정
+    max_deg = max(max(Gs.degree, key=lambda x: x[1])[1], max(Gt.degree, key=lambda x: x[1])[1])
+    bin_max = bin(max_deg)
+    print(f"max degree is {max_deg}")
+    # max_deg를 기준으로, 늘어나는 속성 개수를 계산 (앞 0b 제외)
+    num_attr = len(bin_max) - 2
+    # node * num_attr 의 속성 벡터를 0 value로 초기화
+    init_np_s = np.zeros((Gs.number_of_nodes(), num_attr))
+    init_np_t = np.zeros((Gt.number_of_nodes(), num_attr))
+
+    # 각 노드마다 deg를 측정하여 attr를 init_np에 assign
+    for idx_s, node_s in enumerate(Gs.nodes()):
+        deg_node = Gs.degree(node_s)
+        bin_vec_deg = [int(i) for i in bin(deg_node)[2:]]
+        init_np_s[idx_s][:len(bin_vec_deg)] = bin_vec_deg
+
+    for idx_t, node_t in enumerate(Gt.nodes()):
+        deg_node = Gt.degree(node_t)
+        bin_vec_deg = [int(i) for i in bin(deg_node)[2:]]
+        init_np_t[idx_t][:len(bin_vec_deg)] = bin_vec_deg
+
+    # assign이 완료된 매트릭스를 기존 attr에 attach (np.append(a,b, axis =1))
+    # new_attr_s = np.append(attr_s, init_np_s, axis = 1)
+    # new_attr_t = np.append(attr_t, init_np_t, axis = 1)
+    new_attr_s = init_np_s
+    new_attr_t = init_np_t
+    # 만약 len(attr_s) == 1 (plain network) 의 경우, 그냥 attr을 대체하면 된다.
+    if len(attr_s) == 1:
+        new_attr_s = new_attr_s[:, 1:]
+        new_attr_t = new_attr_t[:, 1:]
+
+    return new_attr_s, new_attr_t
+
+
+def random_flipping_att(att, portion):
+    # 몇개 att를 뒤집을 건지
+    num_flip = int(0.5 * len(att) * portion)
+    att_copy = copy.deepcopy(att)
+    for i in range(num_flip):
+        # 2개의 인덱스를 (0, len(att)-1)구간 안에서 랜덤하게 뽑은 뒤,
+        idx1, idx2 = random.sample(range(0, len(att) - 1), 2)
+        # 두 행을 바꿔준다
+        att[idx1] = att_copy[idx2]
+        att[idx2] = att_copy[idx1]
+
+    return att
+
+
+
+
+def struct_consist_checker(G1, G2, alignment_dict):
+    
+    G1_nodes = list(G1.nodes()) 
+    G2_nodes = list(G2.nodes())    
+    # load nodes:deg dict
+    degdict_G1 = {key : len(nx.single_source_shortest_path_length(G1, source = key, cutoff=1)) for key in G1_nodes}
+    degdict_G2 = {key : len(nx.single_source_shortest_path_length(G2, source = key, cutoff=1)) for key in G2_nodes}
+    # compare with alignment_dict
+    
+    score = 0
+    for key in degdict_G1:
+        try:            
+            if degdict_G1[key] == degdict_G2[alignment_dict[key]]:
+                score += 1
+        except:
+            continue
+    str_consist = score/len(alignment_dict)
+    print(f"same degree portion is {str_consist:.2f}")
+    
+    return str_consist
+        
+def att_consist_checker(G1, G2, attr1, attr2, idx1_dict, idx2_dict, alignment_dict):
+    
+    G1_nodes = list(G1.nodes()) 
+    # load nodes:deg dict
+
+    # compare with alignment_dict
+    
+    score = 0
+    for node in G1_nodes:
+        try:            
+            if (attr1[idx1_dict[node]] == attr2[idx2_dict[alignment_dict[node]]]).all():
+                score += 1
+        except:
+            continue
+    att_consist = score/len(alignment_dict)
+    print(f"same attr portion is {att_consist:.2f}")
+    
+    return att_consist
+        

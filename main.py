@@ -55,6 +55,6 @@ if __name__ == "__main__":
     G1, G2, attr1, attr2, alignment_dict, alignment_dict_reversed, idx1_dict, idx2_dict = na_dataloader(args)
     GradAlign = GradAlign(G1, G2, attr1, attr2, args.k_hop, args.hid_dim, alignment_dict, alignment_dict_reversed, \
                                       args.train_ratio, idx1_dict, idx2_dict, alpha = G2.number_of_nodes() / G1.number_of_nodes(), beta = 1)    
-    S_mv, S_prime, seed_list1, seed_list2, results = GradAlign.run_algorithm()
+    GradAlign.run_algorithm()
 
 

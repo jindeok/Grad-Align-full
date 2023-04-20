@@ -1,3 +1,4 @@
+
 import os.path as osp
 
 from utils import *
@@ -44,8 +45,8 @@ class GradAlign:
         
         self.att_s = att_s
         self.att_t = att_t
-        
-        self.epochs = 30       
+        self.iter = 10
+        self.epochs = 5       
         self.hid_channel = hid
         
         self.default_weight = 1.0
@@ -69,9 +70,11 @@ class GradAlign:
         #self.ratio = self.G1.number_of_nodes()/self.G2.number_of_nodes()
         
         #mode config
-        self.eval_mode = True
+        self.eval_mode = False
         self.cea_mode = False
-
+        self.fast_mode = True
+        
+        self.lamb = 0.3
         
         #self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu') # disable temporarily because of error
         
@@ -80,7 +83,6 @@ class GradAlign:
         iteration = 0
         
         #Construct GNN
-
        # model = myGNN_hidden(len(self.att_s.T), hidden_channels=self.hid_channel, num_layers = self.layer)
        # model = myGCN(len(self.att_s.T), hidden_channels=self.hid_channel, num_layers = self.layer)
         model = myGIN(len(self.att_s.T), hidden_channels=self.hid_channel, num_layers = self.layer)
@@ -105,6 +107,8 @@ class GradAlign:
         index = sorted(list(self.G1.nodes()))
         columns = sorted(list(self.G2.nodes()))
         
+
+        
         start = time.time()
         
         # Start iteration
@@ -115,6 +119,11 @@ class GradAlign:
             
             index = list(set(index) - set(seed_list1))
             columns = list(set(columns) - set(seed_list2))
+             
+            if self.fast_mode == True:        
+                index = list(set.union(*[set(self.G1.neighbors(node)) for node in seed_list1])- set(seed_list1))
+                columns = list(set.union(*[set(self.G2.neighbors(node)) for node in seed_list2])- set(seed_list2))
+                
             seed_n_id_list = seed_list1 + seed_list2
             if len(columns) == 0 or len(index) == 0:
                 break
@@ -148,8 +157,6 @@ class GradAlign:
         print('\n Start evaluation...')
         self.Evaluation(seed_list1, seed_list2)
         S_prime, result = self.FinalEvaluation(S, embedding1, embedding2, seed_list1, seed_list2, self.idx1_dict, self.idx2_dict, adj2)
-        
-        return S, S_prime, seed_list1, seed_list2, result
 
     
     def convert2torch_data(self, G, att):      
@@ -208,6 +215,7 @@ class GradAlign:
             
             optimizer.zero_grad()
             loss = 0
+            mapping_loss = nn.MSELoss()
             for i, (emb_s, emb_t, A_hat_s, A_hat_t) in enumerate(zip(embedding_s, embedding_t, A_hat_s_list, A_hat_t_list)):
                 #multi-layer-loss
                 if i == 0:
@@ -224,9 +232,6 @@ class GradAlign:
         #for test GIN
         embedding_s = model.full_forward(x_s, edge_index_s)        
         embedding_t = model.full_forward(x_t, edge_index_t)
-        
-        # embedding_s = model.full_forward(x_s, edge_index_s, edge_weight_s)        
-        # embedding_t = model.full_forward(x_t, edge_index_t, edge_weight_t)
               
         return embedding_s, embedding_t
     
@@ -243,6 +248,7 @@ class GradAlign:
         for i, (emb1, emb2) in enumerate(zip(embedding1, embedding2)):            
             S = torch.matmul(F.normalize(emb1), F.normalize(emb2).t())
             S = S.detach().numpy()
+            
             S_fin += (1/(self.layer+1)) * S     
             
         try:
@@ -252,6 +258,9 @@ class GradAlign:
             pass
         
         sim_matrix = np.zeros((len(index) * len(columns), 3))
+        
+        start_tve = time.time()
+        
         for i in range(len(index)):
             for j in range(len(columns)):
                 sim_matrix[i * len(columns) + j, 0] = index[i] 
@@ -259,43 +268,42 @@ class GradAlign:
                 sim_matrix[i * len(columns) + j, 2] = S_fin[self.idx1_dict[index[i]],self.idx2_dict[columns[j]]] 
         if len(seed_list1) != 0:
             print("Tversky sim calculation..")
-            sim_matrix2 = calculate_Tversky_coefficient(self.G1, self.G2, seed_list1, seed_list2, index, columns, alpha = self.alpha, beta = self.beta)
+            sim_matrix2 = calculate_Tversky_coefficient(self.G1, self.G2, seed_list1, seed_list2, index, columns, self.alpha, self.beta)
             sim_matrix[:, 2] *= sim_matrix2[:, 2]
         else:
-            sim_matrix2 = 1 # no effect
+            sim_matrix2 = 1 # no effecta
         sim_matrix = sim_matrix[np.argsort(-sim_matrix[:, 2])]
-            
-        seed1 = []
-        seed2 = []
+
+        print("Tversky time : {}sec".format(int(time.time() - start_tve)))
+        interval_1 = time.time()
+        
+        seed1, seed2 = [], []
         len_sim_matrix = len(sim_matrix)
-        if len_sim_matrix != 0:            
-    
-            len_sim_matrix = len(sim_matrix)
-           # T = np.max([5, int(len(self.alignment_dict) / 100 * (1.1 ** (iteration)))]) #여기부분도 바꿔볼수잇을듯? "매칭 넘버 펑션"
-           # T = align_func(version = 'lin', a = 20, b = 5, i = iteration) 
-           # T = align_func(version = 'exp', a = 2, b = 5, i = iteration) 
-           # T = align_func(version = 'log', a = 3**(100), b = 5, i = iteration) 
-            T = align_func(version = 'const', a = int(len(self.alignment_dict)/15), b = 0, i = iteration) 
-
-            #lin, exp, log
-           # T = 1500
-
-            while len(sim_matrix) > 0 and T > 0:
+        if len_sim_matrix != 0:
+            T = align_func(version='const', a=int(len(self.alignment_dict) / self.iter), b=0, i=iteration)
+            nodes1, nodes2, sims = sim_matrix[:, 0].astype(int), sim_matrix[:, 1].astype(int), sim_matrix[:, 2]
+            idx = np.argsort(-sims)
+            nodes1, nodes2, sims = nodes1[idx], nodes2[idx], sims[idx]
+            while len(nodes1) > 0 and T > 0:
                 T -= 1
-                node1, node2 = int(sim_matrix[0, 0]), int(sim_matrix[0, 1])
+                node1, node2 = nodes1[0], nodes2[0]
                 seed1.append(node1)
                 seed2.append(node2)
-                sim_matrix = sim_matrix[sim_matrix[:, 0] != node1, :]
-                sim_matrix = sim_matrix[sim_matrix[:, 1] != node2, :]
-            anchor = len(seed_list1)
-
+                mask = np.logical_and(nodes1 != node1, nodes2 != node2)
+                nodes1, nodes2, sims = nodes1[mask], nodes2[mask], sims[mask]
+            sim_matrix = np.column_stack((nodes1, nodes2, sims))
         anchor = len(seed_list1)
         seed_list1 += seed1
         seed_list2 += seed2
         print('Add seed nodes : {}'.format(len(seed1)))
+
+        print("interval_2 time : {}sec".format(int(time.time() -interval_1 )))
+        
         self.Evaluation(seed_list1, seed_list2)
         
         return seed_list1, seed_list2, anchor, S_fin, sim_matrix2
+
+
     
     def EvolveGraph(self, seed_list1, seed_list2, S):
 
@@ -340,6 +348,8 @@ class GradAlign:
         #input embeddings are final embedding
         index = list(self.G1.nodes())
         columns = list(self.G2.nodes())
+        
+        
         if self.eval_mode == True:
             adj2 = calculate_Tversky_coefficient_final(self.G1, self.G2, seed_list1, seed_list2, index, columns, alpha = self.alpha, beta = self.beta)
             S_prime = self.adj2S(adj2, self.G1.number_of_nodes(), self.G2.number_of_nodes())
@@ -586,16 +596,27 @@ def align_func(version, a, b, i):
     elif version == "const":
         return a
 
+def calculate_Tversky(setA, setB, alpha, beta):
+    setA = set(setA)
+    setB = set(setB)   
+    ep = 0.01
+        
+    inter = len(setA & setB) + ep
+    #union = len(setA | setB) + ep
+    diffA = len(setA - setB) 
+    diffB = len(setB - setA)
+     
+    Tver = inter / (inter + alpha*diffA + beta*diffB)
+    
+    return Tver
+
+
 def calculate_Tversky_coefficient(G1, G2, seed_list1, seed_list2, index, columns, alpha, beta, alignment_dict = None):
     shift = int(np.max([np.max(G1.nodes()), np.max(G2.nodes())]))
-    seed1_dict = {}
     seed1_dict_reversed = {}
-    seed2_dict = {}
     seed2_dict_reversed = {}
     for i in range(len(seed_list1)):
-        seed1_dict[i + 2 * (shift + 1)] = seed_list1[i]
         seed1_dict_reversed[seed_list1[i]] = i + 2 * (shift + 1)
-        seed2_dict[i + 2 * (shift + 1)] = seed_list2[i] + shift + 1
         seed2_dict_reversed[seed_list2[i] + shift + 1] = i + 2 * (shift + 1)
     G1_edges = pd.DataFrame(G1.edges())
     G1_edges.iloc[:, 0] = G1_edges.iloc[:, 0].apply(lambda x:to_seed(x, seed1_dict_reversed))
@@ -610,15 +631,10 @@ def calculate_Tversky_coefficient(G1, G2, seed_list1, seed_list2, index, columns
     Tversky_dict = {}
     for G1_node in index:
         for G2_node in columns:
-            if (G1_node, G2_node) not in Tversky_dict.keys():
-                Tversky_dict[G1_node, G2_node] = 0
-            try:
-                Tversky_dict[G1_node, G2_node] += calculate_Tversky(adj.neighbors(G1_node), adj.neighbors(G2_node + shift + 1), alpha, beta)
-            except:
-                continue
+            Tversky_dict[(G1_node, G2_node)] = Tversky_dict.get((G1_node, G2_node), 0) + calculate_Tversky(adj.neighbors(G1_node), adj.neighbors(G2_node + shift + 1), alpha, beta)
+    
     Tversky_dict = [[x[0][0], x[0][1], x[1]] for x in Tversky_dict.items()]
     sim_matrix = np.array(Tversky_dict)
-    
     return sim_matrix
 
 def calculate_Tversky_coefficient_final(G1, G2, seed_list1, seed_list2, index, columns, alpha, beta):
@@ -659,19 +675,7 @@ def to_seed(x, dictionary):
     except:
         return x
 
-def calculate_Tversky(setA, setB, alpha, beta):
-    setA = set(setA)
-    setB = set(setB)   
-    ep = 0.01
-        
-    inter = len(setA & setB) + ep
-    #union = len(setA | setB) + ep
-    diffA = len(setA - setB) 
-    diffB = len(setB - setA)
-     
-    Tver = inter / (inter + alpha*diffA + beta*diffB)
-    
-    return Tver
+
 
 
 def top_k(S, k=1):
