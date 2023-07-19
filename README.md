@@ -14,6 +14,7 @@ Pytorch_geometric (https://pytorch-geometric.readthedocs.io/en/latest/) package 
 - pands
 - sklearn
 - tqdm
+- networkx
 - matplotlib
 
 
