@@ -2,7 +2,7 @@
 Source code for the papers
 - Jin-Duk et al. "Grad-Align: Gradual Network Alignment via Graph Neural Networks" AAAI-22 Poster program (SA) (accepted) 
 
-- Jin-Duk et al. "On the Power of Gradual Network Alignment Using Dual-Perception Similarities". IEEE TPAMI (under review)
+- Jin-Duk et al. "On the Power of Gradual Network Alignment Using Dual-Perception Similarities". **IEEE TPAMI **
 
 Pytorch_geometric (https://pytorch-geometric.readthedocs.io/en/latest/) package is used for the implementation of graph neural networks (GNNs).
 
