@@ -46,7 +46,7 @@ class GradAlign:
         self.att_s = att_s
         self.att_t = att_t
         self.iter = 10
-        self.epochs = 5       
+        self.epochs = 15      
         self.hid_channel = hid
         
         self.default_weight = 1.0
@@ -70,7 +70,7 @@ class GradAlign:
         #self.ratio = self.G1.number_of_nodes()/self.G2.number_of_nodes()
         
         #mode config
-        self.eval_mode = False
+        self.eval_mode = True # set False to skip computing for the evaluation
         self.cea_mode = False
         self.fast_mode = True
         
