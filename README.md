@@ -1,8 +1,9 @@
 # Grad-Align
 Source code for the papers
 - Jin-Duk et al. "Grad-Align: Gradual Network Alignment via Graph Neural Networks" AAAI-22 (Student Poster Program)
-- Jin-Duk et al. "GradAlign+: Empowering gradual network alignment using attribute augmentation." CIKM 2022.
 - Jin-Duk et al. "On the Power of Gradual Network Alignment Using Dual-Perception Similarities". **IEEE TPAMI**
+
+* Also check our paper (https://github.com/jindeok/GradAlign_plus): Jin-Duk et al. "GradAlign+: Empowering gradual network alignment using attribute augmentation." CIKM 2022.
 
 
 Pytorch_geometric (https://pytorch-geometric.readthedocs.io/en/latest/) package is used for the implementation of graph neural networks (GNNs).
